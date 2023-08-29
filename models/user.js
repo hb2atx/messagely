@@ -1,102 +1,135 @@
-/** Message class for message.ly */
+/** User class for message.ly */
 
+const { BCRYPT_WORK_FACTOR } = require("../config");
 const db = require("../db");
 const ExpressError = require("../expressError");
 
 
-/** Message on the site. */
+/** User of the site. */
 
-class Message {
+class User {
 
-  /** register new message -- returns
-   *    {id, from_username, to_username, body, sent_at}
+  /** register new user -- returns
+   *    {username, password, first_name, last_name, phone}
    */
 
-  static async create({from_username, to_username, body}) {
+  static async register({username, password, first_name, last_name, phone}) { 
     const result = await db.query(
-        `INSERT INTO messages (
-              from_username,
-              to_username,
-              body,
-              sent_at)
-            VALUES ($1, $2, $3, current_timestamp)
-            RETURNING id, from_username, to_username, body, sent_at`,
-        [from_username, to_username, body]);
-
-    return result.rows[0];
+      `INSERT INTO register(
+        username,
+        password,
+        first_name,
+        last_name,
+        phone)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, username, password, first_name, last_name, phone`,
+        [username, password, first_name, last_name, phone]);
   }
 
-  /** Update read_at for message */
+  /** Authenticate: is this username/password valid? Returns boolean. */
 
-  static async markRead(id) {
+  static async authenticate(username, password) {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      throw new ExpressError("Username and Password required", 400);
+    }
+    const results = await db.query(
+      `SELECT username, password
+      FROM users
+      WHERE username = $1`,
+      [username]);
+    const user = results.rows[0];
+    if(user) {
+      if ( await bcrypt.compare(password, user.password));
+      return results.json(`Logged In!`)
+    }
+    throw new ExpressError("Username/password not found", 400);
+   }catch(e){
+    return next(e);
+   }
+
+  /** Update last_login_at for user */
+
+  static async updateLoginTimestamp(username) { 
     const result = await db.query(
-        `UPDATE messages
-           SET read_at = current_timestamp
-           WHERE id = $1
-           RETURNING id, read_at`,
-        [id]);
+      `UPDATE users
+      SET last_login_at = current_timestamp
+      WHERE id = $1
+      RETURNING id, last_login_at`,
+      [username]);
 
-    if (!result.rows[0]) {
-      throw new ExpressError(`No such message: ${id}`, 404);
+      if(!result.rows[0]) {
+        throw new ExpressError(`No such message: ${id}`, 404)
+      }
     }
 
-    return result.rows[0];
+  /** All: basic info on all users:
+   * [{username, first_name, last_name, phone}, ...] */
+
+  static async all() { 
+    const result = await db.query(
+      `SELECT username, first_name, last_name, phone
+      FROM users
+      WHERE id = $1
+      RETURNING id, username, first_name, last_name, phone`,
+      [id, username, first_name, last_name, phone]
+      );
   }
 
-  /** Get: get message by id
+  /** Get: get user by username
    *
-   * returns {id, from_user, to_user, body, sent_at, read_at}
+   * returns {username,
+   *          first_name,
+   *          last_name,
+   *          phone,
+   *          join_at,
+   *          last_login_at } */
+
+  static async get(username) {
+    const results = await db.query(
+      `SELECT username
+      FROM users
+      WHERE id = $1
+      RETURNING username`,
+      [username]
+    )
+   }
+
+  /** Return messages from this user.
    *
-   * both to_user and from_user = {username, first_name, last_name, phone}
+   * [{id, to_user, body, sent_at, read_at}]
    *
+   * where to_user is
+   *   {username, first_name, last_name, phone}
    */
 
-  static async get(id) {
-    const result = await db.query(
-        `SELECT m.id,
-                m.from_username,
-                f.first_name AS from_first_name,
-                f.last_name AS from_last_name,
-                f.phone AS from_phone,
-                m.to_username,
-                t.first_name AS to_first_name,
-                t.last_name AS to_last_name,
-                t.phone AS to_phone,
-                m.body,
-                m.sent_at,
-                m.read_at
-          FROM messages AS m
-            JOIN users AS f ON m.from_username = f.username
-            JOIN users AS t ON m.to_username = t.username
-          WHERE m.id = $1`,
-        [id]);
+  static async messagesFrom(username) {
+      const results = await db.query(
+        `SELECT messages
+        FROM id, to_user, body, sent_at, read_it
+        WHERE to_user IS username, first_name, last_name, phone
+        RETURNING messages`,
+        [username]
+      )
+   }
 
-    let m = result.rows[0];
+  /** Return messages to this user.
+   *
+   * [{id, from_user, body, sent_at, read_at}]
+   *
+   * where from_user is
+   *   {username, first_name, last_name, phone}
+   */
 
-    if (!m) {
-      throw new ExpressError(`No such message: ${id}`, 404);
-    }
-
-    return {
-      id: m.id,
-      from_user: {
-        username: m.from_username,
-        first_name: m.from_first_name,
-        last_name: m.from_last_name,
-        phone: m.from_phone,
-      },
-      to_user: {
-        username: m.to_username,
-        first_name: m.to_first_name,
-        last_name: m.to_last_name,
-        phone: m.to_phone,
-      },
-      body: m.body,
-      sent_at: m.sent_at,
-      read_at: m.read_at,
-    };
+  static async messagesTo(username) { 
+    const results = await db.query(
+      `SELECT messages
+      FROM from_user WHERE username, first_name, last_name, phone
+      RETURN messages TO id, from_user, body, sent_at, read_at
+      `
+    )
   }
 }
 
 
-module.exports = Message;
+module.exports = User;
